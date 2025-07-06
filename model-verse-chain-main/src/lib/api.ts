@@ -85,7 +85,7 @@ export async function chainModelsAPI(prompt: string, models: string[]) {
   });
   if (!response.ok) throw new Error(await response.text());
   return response.json();
-}
+} 
 
 export async function uploadFilesAPI(files: File[]) {
   const formData = new FormData();
