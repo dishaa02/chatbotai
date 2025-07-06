@@ -1,4 +1,3 @@
-
 import {
   Select,
   SelectContent,
@@ -8,102 +7,22 @@ import {
 } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
 
-const models = [
-  // Chat / QA Models
-  {
-    id: 'mistral-7b-instruct',
-    name: 'Mistral 7B Instruct',
-    description: 'Fast chat and QA',
-    category: 'Chat/QA',
-    color: 'from-blue-500 to-cyan-600'
-  },
-  {
-    id: 'kimi-72b',
-    name: 'Kimi 72B',
-    description: 'Large scale chat model',
-    category: 'Chat/QA',
-    color: 'from-blue-500 to-cyan-600'
-  },
-  {
-    id: 'cypher-alpha',
-    name: 'Cypher Alpha',
-    description: 'Advanced reasoning',
-    category: 'Chat/QA',
-    color: 'from-blue-500 to-cyan-600'
-  },
-  {
-    id: 'qwen3-14b',
-    name: 'Qwen3 14B',
-    description: 'Balanced performance',
-    category: 'Chat/QA',
-    color: 'from-blue-500 to-cyan-600'
-  },
-  {
-    id: 'qwen3-30b-a3b',
-    name: 'Qwen3 30B A3B',
-    description: 'High capacity model',
-    category: 'Chat/QA',
-    color: 'from-blue-500 to-cyan-600'
-  },
-  // Coding Models
-  {
-    id: 'deepseek-chat',
-    name: 'DeepSeek Chat',
-    description: 'Specialized for coding',
-    category: 'Coding',
-    color: 'from-green-500 to-emerald-600'
-  },
-  {
-    id: 'dolphin3.0-r1',
-    name: 'Dolphin 3.0 R1',
-    description: 'Code generation expert',
-    category: 'Coding',
-    color: 'from-green-500 to-emerald-600'
-  },
-  {
-    id: 'chimera',
-    name: 'Chimera',
-    description: 'Multi-modal coding',
-    category: 'Coding',
-    color: 'from-green-500 to-emerald-600'
-  },
-  {
-    id: 'qwen3-8b',
-    name: 'Qwen3 8B',
-    description: 'Efficient coding model',
-    category: 'Coding',
-    color: 'from-green-500 to-emerald-600'
-  },
-  // Multilingual / Indian Models
-  {
-    id: 'sarvam-m',
-    name: 'Sarvam M',
-    description: 'Indian language support',
-    category: 'Multilingual',
-    color: 'from-orange-500 to-red-600'
-  },
-  {
-    id: 'glm-z1',
-    name: 'GLM Z1',
-    description: 'Multilingual capabilities',
-    category: 'Multilingual',
-    color: 'from-orange-500 to-red-600'
-  },
-  // Experimental Models
-  {
-    id: 'llama-4-maverick',
-    name: 'Llama 4 Maverick',
-    description: 'Experimental features',
-    category: 'Experimental',
-    color: 'from-purple-500 to-pink-600'
-  },
-  {
-    id: 'mai-ds-r1',
-    name: 'MAI DS R1',
-    description: 'Research model',
-    category: 'Experimental',
-    color: 'from-purple-500 to-pink-600'
-  }
+export const models = [
+  // Chat / QA
+  { id: 'mistralai/mistral-7b-instruct', name: 'Mistral 7B Instruct', description: 'Chat / QA', category: 'Chat / QA', color: 'from-blue-500 to-cyan-600' },
+  { id: 'mistralai/mistral-small-3.2-24b-instruct', name: 'Mistral Small 3.2 24B Instruct', description: 'Chat / QA', category: 'Chat / QA', color: 'from-blue-500 to-cyan-600' },
+  { id: 'qwen/qwen3-14b', name: 'Qwen3 14B', description: 'Chat / QA', category: 'Chat / QA', color: 'from-blue-500 to-cyan-600' },
+  { id: 'qwen/qwen3-30b-a3b', name: 'Qwen3 30B A3B', description: 'Chat / QA', category: 'Chat / QA', color: 'from-blue-500 to-cyan-600' },
+  { id: 'qwen/qwen3-32b', name: 'Qwen3 32B', description: 'Chat / QA', category: 'Chat / QA', color: 'from-blue-500 to-cyan-600' },
+  { id: 'qwen/qwen3-235b-a22b', name: 'Qwen3 235B A22B', description: 'Chat / QA', category: 'Chat / QA', color: 'from-blue-500 to-cyan-600' },
+  // Coding
+  { id: 'deepseek/deepseek-chat', name: 'DeepSeek Chat', description: 'Coding', category: 'Coding', color: 'from-green-500 to-emerald-600' },
+  { id: 'deepseek/deepseek-chat-v3-0324', name: 'DeepSeek Chat v3 0324', description: 'Coding', category: 'Coding', color: 'from-green-500 to-emerald-600' },
+  { id: 'qwen/qwen3-8b', name: 'Qwen3 8B', description: 'Coding', category: 'Coding', color: 'from-green-500 to-emerald-600' },
+  // Experimental / General
+  { id: 'meta-llama/llama-4-maverick', name: 'Llama 4 Maverick', description: 'Experimental / General', category: 'Experimental / General', color: 'from-purple-500 to-pink-600' },
+  { id: 'mistralai/devstral-small', name: 'Devstral Small', description: 'Experimental / General', category: 'Experimental / General', color: 'from-purple-500 to-pink-600' },
+  { id: 'deepseek/deepseek-r1', name: 'DeepSeek R1', description: 'Experimental / General', category: 'Experimental / General', color: 'from-purple-500 to-pink-600' },
 ];
 
 interface ModelSelectorProps {

@@ -1,15 +1,102 @@
-
 import { useState, useRef, useEffect } from 'react';
-import { Send, Bot, User, Link2, Paperclip, Image, FileText } from 'lucide-react';
+import { Send, Bot, User, Link2, Paperclip, Image, FileText, AlertCircle, Settings } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { ModelSelector } from '@/components/ModelSelector';
-import { ChainToggle } from '@/components/ChainToggle';
 import { CopyButton } from '@/components/CopyButton';
-import { UserProfile } from '@/components/UserProfile';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Switch } from '@/components/ui/switch';
+import { Label } from '@/components/ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { apiService, chainModelsAPI, uploadFilesAPI } from '@/lib/api';
+import { useToast } from '@/hooks/use-toast';
+import { models } from '@/components/ModelSelector';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+import rehypeHighlight from 'rehype-highlight';
+
+// Chain Model Selector Component
+interface ChainModelSelectorProps {
+  selectedModels: string[];
+  onModelsChange: (models: string[]) => void;
+}
+
+const ChainModelSelector = ({ selectedModels, onModelsChange }: ChainModelSelectorProps) => {
+  const addModel = (modelId: string) => {
+    if (!selectedModels.includes(modelId)) {
+      onModelsChange([...selectedModels, modelId]);
+    }
+  };
+
+  const removeModel = (modelId: string) => {
+    onModelsChange(selectedModels.filter(id => id !== modelId));
+  };
+
+  const moveModel = (fromIndex: number, toIndex: number) => {
+    const newModels = [...selectedModels];
+    const [movedModel] = newModels.splice(fromIndex, 1);
+    newModels.splice(toIndex, 0, movedModel);
+    onModelsChange(newModels);
+  };
+
+  return (
+    <div className="flex items-center gap-3">
+      <span className="text-sm text-slate-400 font-medium">Chain Models:</span>
+      <div className="flex items-center gap-2">
+        {selectedModels.map((modelId, index) => {
+          const model = models.find(m => m.id === modelId);
+          return (
+            <div key={modelId} className="flex items-center gap-2">
+              <Badge 
+                variant="outline" 
+                className={`text-xs bg-gradient-to-r ${model?.color} text-white border-0 cursor-pointer hover:opacity-80 group relative`}
+                onClick={() => removeModel(modelId)}
+              >
+                {model?.name}
+                <span className="ml-1 text-xs group-hover:text-red-400">×</span>
+                <div className="absolute -top-8 left-1/2 transform -translate-x-1/2 bg-slate-800 text-xs text-slate-300 px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap">
+                  Click to remove
+                </div>
+              </Badge>
+              {index < selectedModels.length - 1 && (
+                <span className="text-slate-400 text-xs">→</span>
+              )}
+            </div>
+          );
+        })}
+        <Select onValueChange={addModel}>
+          <SelectTrigger className="w-[140px] h-6 px-2 text-xs bg-slate-800/50 border-slate-600 text-slate-400 hover:text-emerald-400 hover:border-emerald-500">
+            <SelectValue placeholder="+ Add Model" />
+          </SelectTrigger>
+          <SelectContent className="bg-slate-800 border-slate-700 shadow-2xl max-h-60">
+            {models
+              .filter(model => !selectedModels.includes(model.id))
+              .map((model) => (
+                <SelectItem 
+                  key={model.id} 
+                  value={model.id}
+                  className="text-white hover:bg-slate-700 focus:bg-slate-700 cursor-pointer"
+                >
+                  <div className="flex items-center gap-2">
+                    <Badge 
+                      variant="outline" 
+                      className={`text-xs bg-gradient-to-r ${model.color} text-white border-0`}
+                    >
+                      {model.category}
+                    </Badge>
+                    <span className="text-sm">{model.name}</span>
+                  </div>
+                </SelectItem>
+              ))}
+          </SelectContent>
+        </Select>
+      </div>
+    </div>
+  );
+};
 
 interface Message {
   id: string;
@@ -18,22 +105,45 @@ interface Message {
   model?: string;
   timestamp: Date;
   isChained?: boolean;
+  chainResponses?: Array<{ model: string; response: string }>;
 }
 
 interface ChatInterfaceProps {
   chatId: string;
 }
 
+// Utility: Preprocess plain text to markdown for better formatting
+function autoFormatMarkdown(text: string): string {
+  // Convert 'Features:' or 'How to Use:' to headings
+  let formatted = text.replace(/^(Features|How to Use|Conclusion|Future Trends|Applications of AI|Challenges and Ethical Considerations|Core AI Technologies|Key Types of AI):?/gim, (m) => `### ${m.replace(':','')}`);
+
+  // Convert lines starting with dash, bullet, or similar to markdown bullets
+  formatted = formatted.replace(/^(\s*[-•])\s?/gm, '- ');
+
+  // Convert numbered steps to markdown ordered list
+  formatted = formatted.replace(/^(\d+)\.\s+/gm, (m, n) => `${n}. `);
+
+  // Add spacing before headings
+  formatted = formatted.replace(/(\n)?(### )/g, '\n$2');
+
+  // Remove duplicate blank lines
+  formatted = formatted.replace(/\n{3,}/g, '\n\n');
+
+  return formatted.trim();
+}
+
 export const ChatInterface = ({ chatId }: ChatInterfaceProps) => {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
-  const [selectedModel, setSelectedModel] = useState('mistral-7b-instruct');
-  const [isChaining, setIsChaining] = useState(false);
-  const [chainModels, setChainModels] = useState(['mistral-7b-instruct', 'deepseek-chat']);
+  const [selectedModel, setSelectedModel] = useState('mistralai/mistral-7b-instruct');
   const [isLoading, setIsLoading] = useState(false);
   const [uploadedFiles, setUploadedFiles] = useState<File[]>([]);
+  const [backendConnected, setBackendConnected] = useState<boolean | null>(null);
+  const [chainMode, setChainMode] = useState(false);
+  const [selectedChainModels, setSelectedChainModels] = useState<string[]>(['mistralai/mistral-7b-instruct', 'deepseek/deepseek-chat']);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const { toast } = useToast();
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -43,30 +153,40 @@ export const ChatInterface = ({ chatId }: ChatInterfaceProps) => {
     scrollToBottom();
   }, [messages]);
 
-  const simulateResponse = async (prompt: string, model: string): Promise<string> => {
-    await new Promise(resolve => setTimeout(resolve, 1000 + Math.random() * 2000));
-    
-    const responses = {
-      // Chat / QA Models
-      'mistral-7b-instruct': `Mistral 7B Instruct Response: I understand you're asking about "${prompt}". This is a fast and efficient response from Mistral's instruction-tuned model with clear explanations...`,
-      'kimi-72b': `Kimi 72B Response: Thank you for your question about "${prompt}". As a large-scale model, I can provide comprehensive analysis with deep understanding...`,
-      'cypher-alpha': `Cypher Alpha Response: Analyzing your query "${prompt}" with advanced reasoning capabilities and sophisticated problem-solving approaches...`,
-      'qwen3-14b': `Qwen3 14B Response: Processing your request about "${prompt}" with balanced performance and reliable insights...`,
-      'qwen3-30b-a3b': `Qwen3 30B A3B Response: As a high-capacity model, I can provide detailed analysis of "${prompt}" with extensive knowledge and nuanced understanding...`,
-      // Coding Models
-      'deepseek-chat': `DeepSeek Chat Response: For your coding-related question "${prompt}", I can provide specialized assistance with code generation, debugging, and best practices...`,
-      'dolphin3.0-r1': `Dolphin 3.0 R1 Response: As a code generation expert, I can help you with "${prompt}" by providing efficient, well-structured code solutions...`,
-      'chimera': `Chimera Response: With multi-modal coding capabilities, I can assist with "${prompt}" through various programming paradigms and approaches...`,
-      'qwen3-8b': `Qwen3 8B Response: For your coding query "${prompt}", I can provide efficient solutions with optimized performance...`,
-      // Multilingual / Indian Models
-      'sarvam-m': `Sarvam M Response: For your question "${prompt}", I can provide support in Indian languages with cultural context and local understanding...`,
-      'glm-z1': `GLM Z1 Response: Processing your multilingual query "${prompt}" with cross-language understanding and translation capabilities...`,
-      // Experimental Models
-      'llama-4-maverick': `Llama 4 Maverick Response: As an experimental model, I can explore "${prompt}" with cutting-edge features and innovative approaches...`,
-      'mai-ds-r1': `MAI DS R1 Response: For your research question "${prompt}", I can provide experimental insights and novel perspectives...`
+  // Check backend connectivity on component mount
+  useEffect(() => {
+    const checkBackend = async () => {
+      try {
+        const isConnected = await apiService.healthCheck();
+        setBackendConnected(isConnected);
+        if (!isConnected) {
+          toast({
+            title: "Backend Connection Failed",
+            description: "Unable to connect to the AI backend. Please ensure the server is running.",
+            variant: "destructive",
+          });
+        }
+      } catch (error) {
+        setBackendConnected(false);
+        toast({
+          title: "Backend Connection Failed",
+          description: "Unable to connect to the AI backend. Please ensure the server is running.",
+          variant: "destructive",
+        });
+      }
     };
     
-    return responses[model as keyof typeof responses] || `${model} Response: ${prompt}`;
+    checkBackend();
+  }, [toast]);
+
+  const callModelAPI = async (prompt: string, model: string): Promise<string> => {
+    try {
+      const result = await apiService.askModel(prompt, model);
+      return result.response;
+    } catch (error) {
+      console.error(`Error calling model ${model}:`, error);
+      throw error;
+    }
   };
 
   const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -80,10 +200,32 @@ export const ChatInterface = ({ chatId }: ChatInterfaceProps) => {
 
   const handleSend = async () => {
     if (!input.trim() && uploadedFiles.length === 0) return;
+    if (backendConnected === false) {
+      toast({
+        title: "Backend Not Connected",
+        description: "Please ensure the AI backend server is running before sending messages.",
+        variant: "destructive",
+      });
+      return;
+    }
 
     let messageContent = input;
+    let extractedText = '';
     if (uploadedFiles.length > 0) {
-      messageContent += `\n\nAttached files: ${uploadedFiles.map(f => f.name).join(', ')}`;
+      setIsLoading(true);
+      try {
+        const uploadResult = await uploadFilesAPI(uploadedFiles);
+        extractedText = uploadResult.files.map((f: any) => `\n[${f.filename}]\n${f.text}`).join('\n\n');
+      } catch (err) {
+        toast({
+          title: "File Processing Error",
+          description: err instanceof Error ? err.message : String(err),
+          variant: "destructive",
+        });
+      }
+    }
+    if (extractedText) {
+      messageContent += `\n\n${extractedText}`;
     }
 
     const userMessage: Message = {
@@ -99,43 +241,52 @@ export const ChatInterface = ({ chatId }: ChatInterfaceProps) => {
     setIsLoading(true);
 
     try {
-      if (isChaining) {
-        let currentInput = input;
-        
-        for (let i = 0; i < chainModels.length; i++) {
-          const model = chainModels[i];
-          const response = await simulateResponse(currentInput, model);
-          
-          const botMessage: Message = {
-            id: `${Date.now()}-${i}`,
-            content: response,
-            isUser: false,
-            model: model,
-            timestamp: new Date(),
-            isChained: true
-          };
-          
-          setMessages(prev => [...prev, botMessage]);
-          currentInput = response;
-          
-          if (i < chainModels.length - 1) {
-            await new Promise(resolve => setTimeout(resolve, 500));
-          }
-        }
-      } else {
-        const response = await simulateResponse(input, selectedModel);
+      if (chainMode && selectedChainModels.length > 1) {
+        // Chain mode: use multiple models
+        const chainResponse = await chainModelsAPI(messageContent, selectedChainModels);
+        const finalResponse = chainResponse.responses[chainResponse.responses.length - 1].response;
+        const botMessage: Message = {
+          id: `${Date.now()}-chain`,
+          content: finalResponse,
+          isUser: false,
+          model: selectedChainModels.join(' → '),
+          timestamp: new Date(),
+          isChained: true,
+          chainResponses: chainResponse.responses
+        };
+        setMessages(prev => [...prev, botMessage]);
+      } else if (chainMode && selectedChainModels.length === 1) {
+        // Chain mode with single model (fallback to single model)
+        const response = await apiService.askModel(messageContent, selectedChainModels[0]);
         const botMessage: Message = {
           id: `${Date.now()}-single`,
-          content: response,
+          content: response.response,
+          isUser: false,
+          model: selectedChainModels[0],
+          timestamp: new Date(),
+          isChained: false
+        };
+        setMessages(prev => [...prev, botMessage]);
+      } else {
+        // Single model mode
+        const response = await apiService.askModel(messageContent, selectedModel);
+        const botMessage: Message = {
+          id: `${Date.now()}-single`,
+          content: response.response,
           isUser: false,
           model: selectedModel,
-          timestamp: new Date()
+          timestamp: new Date(),
+          isChained: false
         };
-        
         setMessages(prev => [...prev, botMessage]);
       }
     } catch (error) {
       console.error('Error generating response:', error);
+      toast({
+        title: "Error",
+        description: error instanceof Error ? error.message : "Failed to generate response",
+        variant: "destructive",
+      });
     } finally {
       setIsLoading(false);
     }
@@ -157,10 +308,18 @@ export const ChatInterface = ({ chatId }: ChatInterfaceProps) => {
             AI Assistant Pro
           </h1>
           <div className="flex items-center gap-4">
+            {/* Backend Status Indicator */}
+            {backendConnected !== null && (
+              <Badge 
+                variant={backendConnected ? "default" : "destructive"} 
+                className={`text-xs ${backendConnected ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-red-600 hover:bg-red-700'}`}
+              >
+                {backendConnected ? 'Backend Connected' : 'Backend Offline'}
+              </Badge>
+            )}
             <Badge variant="outline" className="text-slate-400 border-slate-600 bg-slate-800/50">
-              {isChaining ? `Chain: ${chainModels.join(' → ')}` : selectedModel}
+              {selectedModel}
             </Badge>
-            <UserProfile />
           </div>
         </div>
       </div>
@@ -176,9 +335,23 @@ export const ChatInterface = ({ chatId }: ChatInterfaceProps) => {
               <h2 className="text-2xl font-bold text-slate-200 mb-4">
                 Welcome to AI Assistant Pro
               </h2>
-              <p className="text-slate-400 max-w-md mx-auto">
+              <p className="text-slate-400 max-w-md mx-auto mb-6">
                 Start a conversation, upload files, or enable chain mode to connect multiple AI models for enhanced responses
               </p>
+              <div className="max-w-lg mx-auto">
+                <div className="bg-slate-800/50 rounded-lg p-4 border border-slate-700/50">
+                  <h3 className="text-lg font-semibold text-emerald-400 mb-2 flex items-center gap-2">
+                    <Link2 className="h-5 w-5" />
+                    Chain Mode Features
+                  </h3>
+                  <ul className="text-sm text-slate-300 space-y-1 text-left">
+                    <li>• Connect multiple AI models in sequence</li>
+                    <li>• Each model's output becomes the next model's input</li>
+                    <li>• Combine different model strengths (coding, chat, multilingual)</li>
+                    <li>• View the complete chain process step-by-step</li>
+                  </ul>
+                </div>
+              </div>
             </div>
           )}
           
@@ -220,7 +393,55 @@ export const ChatInterface = ({ chatId }: ChatInterfaceProps) => {
                       <CopyButton text={message.content} />
                     </div>
                   )}
-                  <p className="whitespace-pre-wrap leading-relaxed">{message.content}</p>
+                  {/* Markdown Message Content */}
+                  <div className="prose prose-invert max-w-none text-slate-100">
+                    <ReactMarkdown
+                      remarkPlugins={[remarkGfm]}
+                      rehypePlugins={[rehypeHighlight]}
+                      components={{
+                        code({node, inline, className, children, ...props}: any) {
+                          return !inline ? (
+                            <div className="relative group my-2">
+                              <pre className={`rounded-lg bg-slate-900/80 border border-slate-700/60 p-4 overflow-x-auto text-sm font-mono ${className || ''}`}
+                                {...props}
+                              >
+                                <code>{children}</code>
+                              </pre>
+                              <CopyButton
+                                text={String(children)}
+                              />
+                            </div>
+                          ) : (
+                            <code className={`bg-slate-800/70 px-1.5 py-0.5 rounded text-emerald-300 font-mono text-sm ${className || ''}`}>{children}</code>
+                          );
+                        }
+                      }}
+                    >
+                      {message.isUser ? message.content : autoFormatMarkdown(message.content)}
+                    </ReactMarkdown>
+                  </div>
+                  
+                  {/* Chain Responses */}
+                  {message.isChained && message.chainResponses && message.chainResponses.length > 1 && (
+                    <div className="mt-4 space-y-3">
+                      <div className="text-xs text-slate-400 font-medium">Chain Process:</div>
+                      {message.chainResponses.map((chainResponse, index) => (
+                        <div key={index} className="bg-slate-700/30 rounded-lg p-3 border border-slate-600/50">
+                          <div className="flex items-center gap-2 mb-2">
+                            <Badge variant="outline" className="text-xs bg-slate-600 text-slate-300 border-slate-500">
+                              Step {index + 1}: {models.find(m => m.id === chainResponse.model)?.name || chainResponse.model}
+                            </Badge>
+                            {index < message.chainResponses!.length - 1 && (
+                              <span className="text-slate-400 text-xs">→</span>
+                            )}
+                          </div>
+                          <p className="text-sm text-slate-300 whitespace-pre-wrap">
+                            {chainResponse.response}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
@@ -274,17 +495,49 @@ export const ChatInterface = ({ chatId }: ChatInterfaceProps) => {
 
           {/* Controls */}
           <div className="flex items-center justify-between flex-wrap gap-4">
-            <ModelSelector
-              selectedModel={selectedModel}
-              onModelChange={setSelectedModel}
-              disabled={isChaining}
-            />
-            <ChainToggle
-              isChaining={isChaining}
-              onToggle={setIsChaining}
-              chainModels={chainModels}
-              onChainModelsChange={setChainModels}
-            />
+            <div className="flex items-center gap-6">
+              {/* Chain Mode Toggle */}
+              <div className="flex items-center gap-3">
+                <Switch
+                  id="chain-mode"
+                  checked={chainMode}
+                  onCheckedChange={setChainMode}
+                  className="data-[state=checked]:bg-emerald-600"
+                />
+                <Label htmlFor="chain-mode" className="text-sm text-slate-300 font-medium cursor-pointer">
+                  Chain Mode
+                </Label>
+                {chainMode && (
+                  <Badge variant="outline" className="text-xs bg-emerald-600/20 text-emerald-400 border-emerald-500">
+                    <Link2 className="h-3 w-3 mr-1" />
+                    {selectedChainModels.length} Models
+                  </Badge>
+                )}
+              </div>
+              
+              {/* Chain Mode Warning */}
+              {chainMode && selectedChainModels.length === 0 && (
+                <Alert className="bg-amber-900/20 border-amber-600/50 text-amber-300">
+                  <AlertCircle className="h-4 w-4" />
+                  <AlertDescription>
+                    Please add at least one model to the chain.
+                  </AlertDescription>
+                </Alert>
+              )}
+              
+              {/* Model Selector */}
+              {!chainMode ? (
+                <ModelSelector
+                  selectedModel={selectedModel}
+                  onModelChange={setSelectedModel}
+                />
+              ) : (
+                <ChainModelSelector
+                  selectedModels={selectedChainModels}
+                  onModelsChange={setSelectedChainModels}
+                />
+              )}
+            </div>
           </div>
           
           {/* Input */}
@@ -294,7 +547,7 @@ export const ChatInterface = ({ chatId }: ChatInterfaceProps) => {
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={handleKeyPress}
-                placeholder={isChaining ? "Enter your prompt for model chaining..." : "Type your message..."}
+                placeholder="Type your message..."
                 className="min-h-[80px] max-h-40 bg-slate-800/50 border-slate-600 text-white placeholder-slate-400 resize-none pr-20 rounded-2xl shadow-lg backdrop-blur-sm focus:border-emerald-500 focus:ring-emerald-500/20 transition-all duration-200"
                 disabled={isLoading}
               />
@@ -319,7 +572,11 @@ export const ChatInterface = ({ chatId }: ChatInterfaceProps) => {
             </div>
             <Button
               onClick={handleSend}
-              disabled={(!input.trim() && uploadedFiles.length === 0) || isLoading}
+              disabled={
+                (!input.trim() && uploadedFiles.length === 0) || 
+                isLoading || 
+                (chainMode && selectedChainModels.length === 0)
+              }
               className="bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 text-white border-0 h-[80px] px-8 rounded-2xl shadow-lg hover:shadow-xl transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <Send className="h-5 w-5" />
